@@ -47,20 +47,20 @@ def math(shuffle=True):
             prompt_template(PROMPT_TEMPLATE),
             generate(),
         ],
-        scorer=expression_equivalance(),
+        scorer=expression_equivalence(),
         config=GenerateConfig(temperature=0.5),
     )
 
 
 @scorer(metrics=[accuracy(), stderr()])
-def expression_equivalance():
+def expression_equivalence():
     async def score(state: TaskState, target: Target):
         # extract answer
         match = re.search(AnswerPattern.LINE, state.output.completion)
         if match:
-            # ask the model to judge equivalance
+            # ask the model to judge equivalence
             answer = match.group(1)
-            prompt = EQUIVALANCE_TEMPLATE % (
+            prompt = EQUIVALENCE_TEMPLATE % (
                 {"expression1": target.text, "expression2": answer}
             )
             result = await get_model().generate(prompt)
@@ -82,7 +82,7 @@ def expression_equivalance():
     return score
 
 
-EQUIVALANCE_TEMPLATE = r"""
+EQUIVALENCE_TEMPLATE = r"""
 Look at the following two expressions (answers to a math problem) and judge whether they are equivalent. Only perform trivial simplifications
 
 Examples:
