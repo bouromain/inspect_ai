@@ -2,7 +2,7 @@ import re
 from typing import Callable, List
 
 from inspect_ai import Task
-from inspect_ai.dataset import Sample, json_dataset
+from inspect_ai.dataset import Dataset, Sample, json_dataset
 from inspect_ai.model import GenerateConfig, get_model
 from inspect_ai.scorer import (
     CORRECT,
@@ -15,11 +15,13 @@ from inspect_ai.scorer import (
     scorer,
     stderr,
 )
-from inspect_ai.solver import TaskState, generate, prompt_template
-
-# TODO:
-# - implement FSL
-# https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks/agieval
+from inspect_ai.solver import (
+    TaskState,
+    generate,
+    multiple_choice,
+    prompt_template,
+    Choices,
+)
 
 
 ROOT_URL = "https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/"
@@ -43,7 +45,8 @@ EN_TASK = [
     "lsat-ar",
     "lsat-lr",
     "lsat-rc",
-    "sat-math" "sat-en",
+    "sat-math",
+    "sat-en",
     "sat-en-without-passage",
     "aqua-rat",
     "logiqa-en",
@@ -66,6 +69,8 @@ Solve the following math problem step by step. The last line of your response sh
 
 {prompt}
 
+{fewshot_string}
+
 Remember to put your answer on its own line at the end in the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem, and you do not need to use a \\boxed command.
 """.strip()
 
@@ -75,21 +80,24 @@ Answer the following multiple choice question. The last line of your response sh
 {question}
 
 {choices}
+
+{fewshot_string}
 """.strip()
+
+CHOICE_PREFIX = ["(A)", "(B)", "(C)", "(D)", "(E)"]
 
 
 def record_to_sample(record):
-    # We need this as some inputs can have a "passage" (context for the question) before the question
     input_str = (
         str(record["question"])
         if record["passage"] is None
-        else f"{record['passage']} \n {record['question']}"
+        else f"{record['passage']}\n\n{record['question']}"
     )
 
-    # the target is different if the task is a MCQ or a coze test
+    # the target is different if the task is a MCQ (label) or a coze test (answer)
     target_str = str(record["label"]) if record["label"] else record["answer"]
 
-    # the letter are in the choice string (4 first character) I may need a better check for this
+    # the letter are in the choice string (4 first character) and need to be removed
     choices_list = [o[3:] for o in record["options"]] if record["options"] else None
 
     return Sample(
@@ -103,15 +111,8 @@ def record_to_sample(record):
 def build_plan(
     dataset_name: str,
     cot: bool = False,
-    fewshot: int | None = None,
-    fewshot_seed: int = 42,
+    fewshot_samples: Dataset | None = None,
 ) -> List[Callable]:
-    """NB: In the original paper and implementation, the CoT reasoning is done in two steps.
-    see (Fig2 and section 4,2,2 of in ref and post_process_and_evaluation.py). First, the model is asked to generate
-    an explanation of the reasoning, then the model is prompted with the question and the explanation
-    generated in step one. For now CoT reasoning is implemented in a single-step prompt, as per the standard in Inspect AI
-    """
-
     # Determine the template for the tasks in the proper language and for the correct type (MCQ, Cloze)
     if dataset_name in EN_TASK:
         template_prompt = (
@@ -119,58 +120,74 @@ def build_plan(
             if dataset_name in CLOZE_TASK
             else MULTIPLE_CHOICE_TEMPLATE_EN
         )
-        # Add the Chain of Thought (CoT) string if specified
+        # set the Chain of Thought (CoT) string
         cot_string = COT_STRING_EN if cot else ""
+
+        # set few-shots if needed
+        fewshot_string = fewshot_to_str(fewshot_samples) if fewshot_samples else ""
 
     elif dataset_name in CN_TASK:
         raise NotImplementedError("Tests in Chinese are not yet implemented.")
         # template_prompt = CLOZE_TEMPLATE_CN if dataset_name in CLOZE_TASK else MULTIPLE_CHOICE_TEMPLATE_CN
-        ## Add the Chain of Thought (CoT) string if specified
+        ## set the Chain of Thought (CoT) string
         # cot_string = COT_STRING_CN if cot else ''
+        # set few-shots if needed
+        # fewshot_string = fewshot_to_str(fewshot_samples) if fewshot_samples else ""
     else:
         # Raise an error if the task name is not recognized
-        raise ValueError(f"Task '{dataset_name}' not recognized.")
+        raise ValueError(f"Dataset '{dataset_name}' not recognized.")
 
-    if fewshot:
-        pass
-        # # but find a way to remove the current sample
-        # fewshot_samples = dataset
-        # plan.insert(
-        #     0,
-        #     system_message(
-        #         SYSTEM_W_EXAMPLES_PROMPT_TEMPLATE.format(
-        #             examples="\n\n".join(
-        #                 [sample_to_fewshot(sample=sample) for sample in fewshot_samples]
-        #             )
-        #         )
-        #     ),
-        # )
+    # add the cloze string to the prompt while keeping the other variable available
+    if dataset_name in CLOZE_TASK:
+        template_prompt = template_prompt.format(
+            prompt="{prompt}", cot_string=cot_string, fewshot_string=fewshot_string
+        )
+        # Define the plan consisting of a prompt and a generation step
+        plan = [
+            prompt_template(template=template_prompt),
+            generate(),
+        ]
+    else:
+        template_prompt = template_prompt.format(
+            letters="{letters}",
+            cot_string=cot_string,
+            question="{question}",
+            choices="{choices}",
+            fewshot_string=fewshot_string,
+        )
+        # Define the plan consisting of a prompt and a generation step
+        plan = [
+            multiple_choice(template=template_prompt),
+            generate(),
+        ]
 
-    # Define the plan consisting of a prompt and a generation step
-    plan = [
-        prompt_template(template=template_prompt, params={"cot_string": cot_string}),
-        generate(),
-    ]
     return plan
 
 
 def task_template(
     dataset_name, cot: bool = False, fewshot: int | None = None, fewshot_seed: int = 42
 ) -> Task:
+    # Load the dataset
     dataset = json_dataset(
         json_file=f"{ROOT_URL}{dataset_name}.jsonl",
         name=dataset_name,
         sample_fields=record_to_sample,
     )
 
+    # Randomly chose the few-shots examples if specified
+    if fewshot:
+        fewshot_samples = (
+            dataset.shuffle(seed=fewshot_seed)[:fewshot] if fewshot else None
+        )
+        dataset = dataset[fewshot:] if fewshot else dataset
+
     # make a plan according to the type of task and language
     plan = build_plan(
-        dataset_name=dataset_name, cot=cot, fewshot=fewshot, fewshot_seed=fewshot_seed
+        dataset_name=dataset_name, cot=cot, fewshot_samples=fewshot_samples
     )
 
-    scorer = (
-        expression_equivalence() if dataset_name in CLOZE_TASK else choice()
-    )  # expression_equivalence
+    # define the scorer according to the task type
+    scorer = expression_equivalence() if dataset_name in CLOZE_TASK else choice()
 
     return Task(
         dataset=dataset,
@@ -183,10 +200,23 @@ def task_template(
     )
 
 
+def fewshot_to_str(fewshot_samples: Dataset) -> str:
+    return "".join(
+        [
+            f"\n\nQUESTION:\n\n{s.input}\n\n{choices_to_str(s.choices)}\n\nANSWER: {s.target}"
+            for s in fewshot_samples
+        ]
+    )
+
+
+def choices_to_str(choices: Choices) -> str:
+    return "".join(
+        [f"{prefix} {choice}\n\n" for prefix, choice in zip(CHOICE_PREFIX, choices)]
+    ).strip()
+
+
 # adapt scorer to the type of task
 # # https://github.com/UKGovernmentBEIS/inspect_ai/blob/52688ccdc88b1dee6abaaa1144e731257b637f6b/benchmarks/mathematics.py
-
-
 @scorer(metrics=[accuracy(), stderr()])
 def expression_equivalence():
     async def score(state: TaskState, target: Target):
