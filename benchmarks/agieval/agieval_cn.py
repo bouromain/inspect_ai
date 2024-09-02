@@ -1,6 +1,6 @@
 from agieval import task_template
 
-from inspect_ai import Task, task
+from inspect_ai import task
 
 
 ## TASKS in CHINESE

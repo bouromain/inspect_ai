@@ -178,10 +178,12 @@ def task_template(
 
     # Randomly chose the few-shots examples if specified
     if fewshot:
-        fewshot_samples = (
-            dataset.shuffle(seed=fewshot_seed)[:fewshot] if fewshot else None
-        )
-        dataset = dataset[fewshot:] if fewshot else dataset
+        fewshot_samples = dataset
+        fewshot_samples.shuffle(seed=fewshot_seed)
+        dataset = fewshot_samples[fewshot:]
+        fewshot_samples = fewshot_samples[:fewshot]
+    else:
+        fewshot_samples = None
 
     # make a plan according to the type of task and language
     plan = build_plan(
@@ -205,7 +207,7 @@ def task_template(
 def fewshot_to_str(fewshot_samples: Dataset) -> str:
     return "".join(
         [
-            f"\n\nQUESTION:\n\n{s.input}\n\n{choices_to_str(s.choices)}\n\nANSWER: {s.target}"
+            f"\n\nQUESTION:\n\n{convert_math_str(s.input)}\n\n{convert_math_str(choices_to_str(s.choices))}\n\nANSWER: {s.target}"
             for s in fewshot_samples
         ]
     )
@@ -215,6 +217,11 @@ def choices_to_str(choices: Choices) -> str:
     return "".join(
         [f"{prefix} {choice}\n\n" for prefix, choice in zip(CHOICE_PREFIX, choices)]
     ).strip()
+
+
+def convert_math_str(input_string: str) -> str:
+    # This formatting escape curly brackets from maths questions to avoid conflict with the format method
+    return input_string.replace("{", "{{").replace("}", "}}")
 
 
 # adapt scorer to the type of task

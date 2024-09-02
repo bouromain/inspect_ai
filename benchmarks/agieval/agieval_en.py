@@ -1,6 +1,6 @@
 from agieval import task_template
 
-from inspect_ai import Task, task
+from inspect_ai import task
 
 
 ## ENGLISH Tasks
@@ -26,7 +26,7 @@ def lsat_rc(cot: bool = False, fewshot: int | None = None, fewshot_seed: int = 4
 
 
 @task(group="en")
-def sat_math(cot: bool = False, fewshot: int | None = None):
+def sat_math(cot: bool = False, fewshot: int | None = None, fewshot_seed: int = 42):
     return task_template(dataset_name="sat-math", cot=cot, fewshot=fewshot)
 
 
