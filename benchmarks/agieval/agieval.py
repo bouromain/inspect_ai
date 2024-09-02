@@ -16,13 +16,12 @@ from inspect_ai.scorer import (
     stderr,
 )
 from inspect_ai.solver import (
+    Choices,
     TaskState,
     generate,
     multiple_choice,
     prompt_template,
-    Choices,
 )
-
 
 ROOT_URL = "https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/"
 
@@ -128,21 +127,24 @@ def build_plan(
 
     elif dataset_name in CN_TASK:
         raise NotImplementedError("Tests in Chinese are not yet implemented.")
-        # template_prompt = CLOZE_TEMPLATE_CN if dataset_name in CLOZE_TASK else MULTIPLE_CHOICE_TEMPLATE_CN
-        ## set the Chain of Thought (CoT) string
-        # cot_string = COT_STRING_CN if cot else ''
-        # set few-shots if needed
-        # fewshot_string = fewshot_to_str(fewshot_samples) if fewshot_samples else ""
+        # template_prompt = (
+        #     CLOZE_TEMPLATE_CN
+        #     if dataset_name in CLOZE_TASK
+        #     else MULTIPLE_CHOICE_TEMPLATE_CN
+        # )
+        # # set the Chain of Thought (CoT) string
+        # cot_string = COT_STRING_CN if cot else ""
+
     else:
         # Raise an error if the task name is not recognized
         raise ValueError(f"Dataset '{dataset_name}' not recognized.")
 
-    # add the cloze string to the prompt while keeping the other variable available
+    # Create a plan according to the task type and options (cot, fewshots...)
     if dataset_name in CLOZE_TASK:
         template_prompt = template_prompt.format(
             prompt="{prompt}", cot_string=cot_string, fewshot_string=fewshot_string
         )
-        # Define the plan consisting of a prompt and a generation step
+
         plan = [
             prompt_template(template=template_prompt),
             generate(),
@@ -155,7 +157,7 @@ def build_plan(
             choices="{choices}",
             fewshot_string=fewshot_string,
         )
-        # Define the plan consisting of a prompt and a generation step
+
         plan = [
             multiple_choice(template=template_prompt),
             generate(),
