@@ -64,23 +64,23 @@ COT_STRING_EN = r"""Think step by step before answering."""
 # https://github.com/UKGovernmentBEIS/inspect_ai/blob/52688ccdc88b1dee6abaaa1144e731257b637f6b/benchmarks/mathematics.py
 
 CLOZE_TEMPLATE_EN = r"""
+{fewshot_string}
+
 Solve the following math problem step by step. The last line of your response should be of the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem. {cot_string}
 
 {prompt}
-
-{fewshot_string}
 
 Remember to put your answer on its own line at the end in the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem, and you do not need to use a \\boxed command.
 """.strip()
 
 MULTIPLE_CHOICE_TEMPLATE_EN = r"""
+{fewshot_string}
+
 Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: $LETTER' (without quotes) where LETTER is one of {letters}. {cot_string}
 
 {question}
 
 {choices}
-
-{fewshot_string}
 """.strip()
 
 CHOICE_PREFIX = ["(A)", "(B)", "(C)", "(D)", "(E)"]
@@ -205,9 +205,9 @@ def task_template(
 
 
 def fewshot_to_str(fewshot_samples: Dataset) -> str:
-    return "".join(
+    return "\n\nHere are the answers for the questions in exams.".join(
         [
-            f"\n\nQUESTION:\n\n{convert_math_str(s.input)}\n\n{convert_math_str(choices_to_str(s.choices))}\n\nANSWER: {s.target}"
+            f"\n\PROBLEM:\n\n{convert_math_str(s.input)}\n\n{convert_math_str(choices_to_str(s.choices))}\n\nANSWER: {s.target}"
             for s in fewshot_samples
         ]
     )
